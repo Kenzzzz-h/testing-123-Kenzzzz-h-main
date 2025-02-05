@@ -1,0 +1,232 @@
+name: IMS322 Autograder
+
+on:
+  push:
+    branches:
+      - main
+      - draft
+  workflow_dispatch:
+
+env:
+  TOTAL_POINTS: 12
+
+jobs:
+  autograde:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'finished') || contains(github.event.head_commit.message, 'autograde') || github.actor == 'nektos/act'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Autograding
+
+        run: |
+          set -e
+          sudo apt-get install -y imagemagick
+          if ! command -v identify &> /dev/null; then
+            echo -e "ImageMagick could not be installed"
+            exit 1
+          fi
+
+          points_deducted=0
+          critical_files_missing=false
+
+          critical=""
+          default_files=""
+          separation=""
+          javascript_loading=""
+          images=""
+          css_color=""
+          modern_js=""
+
+
+          # DEFAULT FILES
+
+          # Check to make sure there are HTML, CSS, and JS files, fail if any are missing
+          html_files=$(find . -name "*.html")
+          css_files=$(find . -name "*.css")
+          js_files=$(find . -name "*.js")
+
+          if [ -z "$html_files" ]; then
+            critical="$critical No HTML files found.\n"
+            critical_files_missing=true
+          fi
+
+          if [ -z "$css_files" ]; then
+            critical="$critical No CSS files found.\n"
+            critical_files_missing=true
+          fi
+
+          if [ -z "$js_files" ]; then
+            critical="$critical No JavaScript files found.\n"
+            critical_files_missing=true
+          fi
+
+          if [ "$critical_files_missing" = true ]; then
+            echo -e "\n--- AUTOGRADING RESULTS ---\n"
+            echo -e "$critical"
+            echo -e "Critical failure! Autograding score not available!"
+            echo -e "\n--- AUTOGRADING RESULTS ---\n"
+            exit 1
+          fi
+
+          # Check to make sure that index.html, styles.css, and script.js are named correctly
+          if [ ! -f "index.html" ] || [ ! -f "styles.css" ] || [ ! -f "script.js" ]; then
+            default_files="HTML, CSS, or JS file is incorrectly named according to Style Guide.\n"
+            points_deducted=$((points_deducted + 1))
+          fi
+
+
+          # SEPARATION OF CONCERNS
+
+          # check for internal style tags in any html file
+          for html_file in $html_files; do
+            if grep -iq "<style" "$html_file"; then
+              separation="$separation Internal styling (style tags) found in body of $html_file.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+          # check for inline style attributes in any html file
+          for html_file in $html_files; do
+            if grep -iq "style=" "$html_file"; then
+              separation="$separation Inline style attributes found in $html_file.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+          # check for <script> tags in the body of any html file
+          for html_file in $html_files; do
+            if grep -Pzo "(?s)<body.*?>.*?<script.*?>.*?</body>" "$html_file" > /dev/null; then
+              separation="$separation <script> tags found in body of $html_file. All JavaScript should be in the script.js file.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+          # check for on* attributes in any html file
+          for html_file in $html_files; do
+            if grep -iq -E "<[^>]*\s+on[a-z]+\s*=" "$html_file"; then
+              separation="$separation Inline event handlers (on* attributes) found in $html_file. Functions should be run from event listeners in the script.js file.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+
+          # JAVASCRIPT LOADING
+
+          # check for missing defer attribute in script tag in the head of any html file
+          for html_file in $html_files; do
+            if grep -Pzo "(?s)<head.*?>.*?<script(?!.*\bdefer\b).*?>.*?</head>" "$html_file" > /dev/null; then
+              javascript_loading="$javascript_loading <script> tag in <head> of $html_file is missing 'defer' attribute.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+          # Check for either a DOMContentLoaded event listener or window.onload property in any JS file
+          for js_file in $js_files; do
+            if grep -q -E "(DOMContentLoaded|window\.onload)" "$js_file"; then
+              separation="$separation DOMContentLoaded event listener or window.onload property found in $js_file.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+
+          # IMAGE COMPRESSION, RESOLUTION, AND ORGANIZATION
+
+          # Check for image files in the main/root directory
+          for file in $(find . -maxdepth 1 -type f \( -iname "*.avif" -o -iname "*.bmp" -o -iname "*.gif" -o -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.tif" -o -iname "*.tiff" -o -iname "*.webp" \)); do
+            if [[ -e "$file" ]]; then
+              images="$images Image file $file found in main folder, should be in 'images' folder.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+          # Check for any non-WebP image files in any folder
+          for file in $(find . -type f \( -iname "*.avif" -o -iname "*.bmp" -o -iname "*.gif" -o -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.tif" -o -iname "*.tiff" \)); do
+            if [[ -e "$file" ]]; then
+              images="$images Non-WebP image file $file found. All images should be in WebP format.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+          # Check for any image exceeding a width of 3840px
+          for image in $(find . -type f \( -iname "*.avif" -o -iname "*.bmp" -o -iname "*.gif" -o -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.tif" -o -iname "*.tiff" -o -iname "*.webp" \)); do
+            width=$(identify -format "%w" "$image")
+            if [ "$width" -gt 3840 ]; then
+              images="$images Image $image exceeds width of 3840px.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+
+          # CSS COLOR SYNTAX
+
+          # check for color names used as properties in any CSS file
+          for css_file in $css_files; do
+            if grep -E -i ":\s*(aliceblue|antiquewhite|aquamarine|azure|beige|bisque|blanchedalmond|blue|blueviolet|brown|burlywood|cadetblue|chartreuse|chocolate|coral|cornflowerblue|cornsilk|crimson|cyan|darkblue|darkcyan|darkgoldenrod|darkgray|darkgreen|darkkhaki|darkmagenta|darkolivegreen|darkorange|darkorchid|darkred|darksalmon|darkseagreen|darkslateblue|darkslategray|darkturquoise|darkviolet|deeppink|deepskyblue|dimgray|dodgerblue|firebrick|floralwhite|forestgreen|fuchsia|gainsboro|ghostwhite|gold|goldenrod|gray|green|greenyellow|honeydew|hotpink|indianred|indigo|ivory|khaki|lavender|lavenderblush|lawngreen|lemonchiffon|lightblue|lightcoral|lightcyan|lightgoldenrodyellow|lightgray|lightgreen|lightpink|lightsalmon|lightseagreen|lightskyblue|lightslategrey|lightsteelblue|lightyellow|lime|limegreen|linen|magenta|maroon|mediumaquamarine|mediumblue|mediumorchid|mediumpurple|mediumseagreen|mediumslateblue|mediumspringgreen|mediumturquoise|mediumvioletred|midnightblue|mintcream|mistyrose|moccasin|navajowhite|navy|oldlace|olive|olivedrab|orange|orangered|orchid|palegoldenrod|palegreen|paleturquoise|palevioletred|papayawhip|peachpuff|peru|pink|plum|powderblue|purple|red|rosybrown|royalblue|saddlebrown|salmon|sandybrown|seagreen|seashell|sienna|silver|skyblue|slateblue|slategray|snow|springgreen|steelblue|tan|teal|thistle|tomato|turquoise|violet|wheat|white|whitesmoke)" "$css_file"; then
+              css_color="$css_color Color name used as a property in $css_file. Use HEX or RGB values instead.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+
+          # MODERN JAVASCRIPT VARIABLE DECLARATIONS
+
+          # check for any instances of var in any js file
+          for js_file in $js_files; do
+            if grep -q "\bvar\b" "$js_file"; then
+              modern_js="$modern_js 'var' keyword found in $js_file. Use 'let' or 'const' instead.\n"
+              points_deducted=$((points_deducted + 1))
+              break
+            fi
+          done
+
+
+          # RESULTS
+
+          echo -e "\n--- AUTOGRADING RESULTS ---\n"
+
+          if [ -z "$default_files" ] && [ -z "$separation" ] && [ -z "$javascript_loading" ] && [ -z "$images" ] && [ -z "$css_color" ] && [ -z "$modern_js" ]; then
+            echo -e "No issues found!\n"    
+          else
+            if [ -n "$default_files" ]; then
+              echo -e "Default Files:\n"
+              echo -e "$default_files"
+            fi
+            if [ -n "$separation" ]; then
+              echo -e "Separation of Concerns:\n"
+              echo -e "$separation"
+            fi
+            if [ -n "$javascript_loading" ]; then
+              echo -e "JavaScript Loading:\n"
+              echo -e "$javascript_loading"
+            fi
+            if [ -n "$images" ]; then
+              echo -e "Image Compression, Resolution, and Organization:\n"
+              echo -e "$images"
+            fi
+            if [ -n "$css_color" ]; then
+              echo -e "CSS Color Syntax:\n"
+              echo -e "$css_color"
+            fi
+            if [ -n "$modern_js" ]; then
+              echo -e "Modern JavaScript Variable Declarations:\n"
+              echo -e "$modern_js"
+            fi
+          fi
+
+          total_points=${{ env.TOTAL_POINTS }}
+          points_awarded=$((total_points - points_deducted))
+          echo -e "Autograded Score: $points_awarded/$total_points\n"
+          echo -e "\n--- AUTOGRADING RESULTS ---\n"
+          exit 0

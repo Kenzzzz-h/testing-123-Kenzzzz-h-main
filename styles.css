@@ -1,0 +1,19 @@
+* {
+  box-sizing: border-box;
+}
+
+p {
+  max-width: 80ch;
+}
+
+img {
+  width: 100%;
+}
+
+/* media queries - keep at bottom */
+
+@media (max-width: 800px) {
+}
+
+@media (max-width: 480px) {
+}

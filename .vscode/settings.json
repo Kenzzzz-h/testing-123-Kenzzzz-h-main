@@ -1,0 +1,22 @@
+{
+  "editor.minimap.enabled": false,
+  "breadcrumbs.enabled": false,
+  "editor.tabSize": 2,
+  "editor.formatOnSave": true,
+  "prettier.trailingComma": "none",
+  "[html]": {
+    "editor.defaultFormatter": "vsce-toolroom.vscode-beautify"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "files.exclude": {
+    "**/.*": true
+  }
+}
